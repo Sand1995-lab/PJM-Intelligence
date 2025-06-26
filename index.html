@@ -100,6 +100,18 @@
             border-radius: 10px;
             text-align: center;
             border: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .zone-card:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .zone-card.selected {
+            background: rgba(74, 222, 128, 0.2);
+            border-color: #4ade80;
         }
 
         .zone-name {
@@ -117,6 +129,10 @@
             position: relative;
             height: 300px;
             margin-top: 1rem;
+        }
+
+        .large-chart {
+            height: 400px;
         }
 
         .controls {
@@ -213,9 +229,59 @@
         .status-live { background: #4ade80; }
         .status-delayed { background: #fbbf24; }
         .status-offline { background: #f87171; }
+
+        .historical-section {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 15px;
+            padding: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .loading-content {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2rem;
+            border-radius: 15px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
     </style>
 </head>
 <body>
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <div class="loading" style="width: 40px; height: 40px; margin-bottom: 1rem;"></div>
+            <div>Loading historical data...</div>
+            <div style="font-size: 0.9rem; color: #a0c4ff; margin-top: 0.5rem;">This may take a few moments</div>
+        </div>
+    </div>
+
     <div class="header">
         <h1>PJM Real-Time Energy Market Dashboard</h1>
         <div class="last-update">
@@ -233,6 +299,8 @@
                     <option value="6h">Last 6 Hours</option>
                     <option value="24h" selected>Last 24 Hours</option>
                     <option value="7d">Last 7 Days</option>
+                    <option value="30d">Last 30 Days</option>
+                    <option value="365d">Last 365 Days</option>
                 </select>
             </div>
             <div class="control-group">
@@ -258,6 +326,10 @@
                     <option value="RECO">Rockland Electric</option>
                 </select>
             </div>
+            <div class="control-group">
+                <label>Compare Zones</label>
+                <button id="compareBtn" onclick="toggleCompareMode()">Enable Compare</button>
+            </div>
             <button class="refresh-btn" onclick="refreshData()">
                 <span id="refreshIcon">🔄</span> Refresh Data
             </button>
@@ -265,10 +337,10 @@
 
         <div class="grid">
             <div class="card">
-                <h3>Real-Time LMP</h3>
+                <h3>Real-Time LMP - <span id="selectedZoneName">RTO Average</span></h3>
                 <div class="price-display" id="currentPrice">$45.67</div>
                 <div class="price-change positive" id="priceChange">+$2.34 (+5.4%)</div>
-                <div class="chart-container">
+                <div class="chart-container" id="priceChartContainer">
                     <canvas id="priceChart"></canvas>
                 </div>
             </div>
@@ -287,28 +359,64 @@
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
                     <div style="text-align: center;">
                         <div style="color: #a0c4ff; font-size: 0.9rem;">Peak Price</div>
-                        <div style="font-size: 1.3rem; font-weight: bold;">$89.45</div>
+                        <div style="font-size: 1.3rem; font-weight: bold;" id="peakPrice">$89.45</div>
                     </div>
                     <div style="text-align: center;">
                         <div style="color: #a0c4ff; font-size: 0.9rem;">Off-Peak</div>
-                        <div style="font-size: 1.3rem; font-weight: bold;">$23.12</div>
+                        <div style="font-size: 1.3rem; font-weight: bold;" id="offPeakPrice">$23.12</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="color: #a0c4ff; font-size: 0.9rem;">Average</div>
+                        <div style="font-size: 1.3rem; font-weight: bold;" id="avgPrice">$45.67</div>
                     </div>
                     <div style="text-align: center;">
                         <div style="color: #a0c4ff; font-size: 0.9rem;">Volatility</div>
-                        <div style="font-size: 1.3rem; font-weight: bold;">High</div>
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="color: #a0c4ff; font-size: 0.9rem;">Trend</div>
-                        <div style="font-size: 1.3rem; font-weight: bold;">↗️ Rising</div>
+                        <div style="font-size: 1.3rem; font-weight: bold;" id="volatility">Medium</div>
                     </div>
                 </div>
             </div>
         </div>
 
         <div class="card">
-            <h3>Zone Pricing Overview</h3>
+            <h3>Zone Pricing Overview <span style="font-size: 0.9rem; color: #a0c4ff;">(Click to select/compare)</span></h3>
             <div class="zone-grid" id="zoneGrid">
                 <!-- Zone cards will be populated by JavaScript -->
+            </div>
+        </div>
+
+        <div class="historical-section" id="historicalSection" style="display: none;">
+            <h3 style="margin-bottom: 1rem; color: #a0c4ff;">365-Day Historical Analysis</h3>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div style="color: #a0c4ff; font-size: 0.9rem;">Yearly High</div>
+                    <div style="font-size: 1.5rem; font-weight: bold;" id="yearlyHigh">$156.78</div>
+                    <div style="font-size: 0.8rem; color: #f87171;" id="yearlyHighDate">Aug 15, 2024</div>
+                </div>
+                <div class="stat-item">
+                    <div style="color: #a0c4ff; font-size: 0.9rem;">Yearly Low</div>
+                    <div style="font-size: 1.5rem; font-weight: bold;" id="yearlyLow">$8.45</div>
+                    <div style="font-size: 0.8rem; color: #4ade80;" id="yearlyLowDate">Mar 22, 2024</div>
+                </div>
+                <div class="stat-item">
+                    <div style="color: #a0c4ff; font-size: 0.9rem;">Average Price</div>
+                    <div style="font-size: 1.5rem; font-weight: bold;" id="yearlyAvg">$42.35</div>
+                    <div style="font-size: 0.8rem; color: #fbbf24;">±$18.92 StdDev</div>
+                </div>
+                <div class="stat-item">
+                    <div style="color: #a0c4ff; font-size: 0.9rem;">Days >$100</div>
+                    <div style="font-size: 1.5rem; font-weight: bold;" id="highPriceDays">23</div>
+                    <div style="font-size: 0.8rem; color: #f87171;">6.3% of year</div>
+                </div>
+                <div class="stat-item">
+                    <div style="color: #a0c4ff; font-size: 0.9rem;">Peak Season Avg</div>
+                    <div style="font-size: 1.5rem; font-weight: bold;" id="peakSeasonAvg">$58.67</div>
+                    <div style="font-size: 0.8rem; color: #fbbf24;">Jun-Aug</div>
+                </div>
+                <div class="stat-item">
+                    <div style="color: #a0c4ff; font-size: 0.9rem;">Off-Peak Season</div>
+                    <div style="font-size: 1.5rem; font-weight: bold;" id="offPeakSeasonAvg">$32.45</div>
+                    <div style="font-size: 0.8rem; color: #4ade80;">Dec-Feb</div>
+                </div>
             </div>
         </div>
 
@@ -345,30 +453,33 @@
     </div>
 
     <script>
-        // PJM Zone Data
+        // PJM Zone Data with enhanced information
         const pjmZones = [
-            { code: 'RTO', name: 'RTO Average', price: 45.67 },
-            { code: 'AECO', name: 'Atlantic Electric', price: 47.23 },
-            { code: 'AEP', name: 'American Electric Power', price: 43.89 },
-            { code: 'BGE', name: 'Baltimore Gas & Electric', price: 46.78 },
-            { code: 'COMED', name: 'Commonwealth Edison', price: 41.56 },
-            { code: 'DAYTON', name: 'Dayton Power & Light', price: 44.12 },
-            { code: 'DEOK', name: 'Duke Energy OH/KY', price: 42.67 },
-            { code: 'DOM', name: 'Dominion Virginia', price: 48.91 },
-            { code: 'DPL', name: 'Delmarva Power', price: 46.45 },
-            { code: 'DUQ', name: 'Duquesne Light', price: 43.78 },
-            { code: 'JCPL', name: 'Jersey Central', price: 49.23 },
-            { code: 'METED', name: 'Metropolitan Edison', price: 45.34 },
-            { code: 'PECO', name: 'PECO Energy', price: 47.89 },
-            { code: 'PENELEC', name: 'Penn Electric', price: 44.67 },
-            { code: 'PEPCO', name: 'Potomac Electric', price: 48.12 },
-            { code: 'PPL', name: 'PPL Electric', price: 45.56 },
-            { code: 'PSEG', name: 'PSE&G', price: 50.23 },
-            { code: 'RECO', name: 'Rockland Electric', price: 51.45 }
+            { code: 'RTO', name: 'RTO Average', price: 45.67, selected: true },
+            { code: 'AECO', name: 'Atlantic Electric', price: 47.23, selected: false },
+            { code: 'AEP', name: 'American Electric Power', price: 43.89, selected: false },
+            { code: 'BGE', name: 'Baltimore Gas & Electric', price: 46.78, selected: false },
+            { code: 'COMED', name: 'Commonwealth Edison', price: 41.56, selected: false },
+            { code: 'DAYTON', name: 'Dayton Power & Light', price: 44.12, selected: false },
+            { code: 'DEOK', name: 'Duke Energy OH/KY', price: 42.67, selected: false },
+            { code: 'DOM', name: 'Dominion Virginia', price: 48.91, selected: false },
+            { code: 'DPL', name: 'Delmarva Power', price: 46.45, selected: false },
+            { code: 'DUQ', name: 'Duquesne Light', price: 43.78, selected: false },
+            { code: 'JCPL', name: 'Jersey Central', price: 49.23, selected: false },
+            { code: 'METED', name: 'Metropolitan Edison', price: 45.34, selected: false },
+            { code: 'PECO', name: 'PECO Energy', price: 47.89, selected: false },
+            { code: 'PENELEC', name: 'Penn Electric', price: 44.67, selected: false },
+            { code: 'PEPCO', name: 'Potomac Electric', price: 48.12, selected: false },
+            { code: 'PPL', name: 'PPL Electric', price: 45.56, selected: false },
+            { code: 'PSEG', name: 'PSE&G', price: 50.23, selected: false },
+            { code: 'RECO', name: 'Rockland Electric', price: 51.45, selected: false }
         ];
 
-        // Global variables for charts
+        // Global variables
         let priceChart, loadChart, forecastChart;
+        let compareMode = false;
+        let selectedZones = ['RTO'];
+        let historicalData = {};
 
         // Initialize dashboard
         function initDashboard() {
@@ -378,13 +489,15 @@
             
             // Set up auto-refresh
             setInterval(() => {
-                refreshData();
-            }, 60000); // Refresh every minute
+                if (document.getElementById('timeRange').value !== '365d') {
+                    refreshData();
+                }
+            }, 60000);
 
             // Add simulated price volatility
             setInterval(() => {
                 simulatePriceChanges();
-            }, 5000); // Update prices every 5 seconds
+            }, 5000);
         }
 
         function updateLastUpdateTime() {
@@ -398,7 +511,8 @@
 
             pjmZones.forEach(zone => {
                 const zoneCard = document.createElement('div');
-                zoneCard.className = 'zone-card';
+                zoneCard.className = `zone-card ${zone.selected ? 'selected' : ''}`;
+                zoneCard.onclick = () => selectZone(zone.code);
                 
                 const changePercent = (Math.random() - 0.5) * 10;
                 const changeClass = changePercent > 0 ? 'positive' : changePercent < 0 ? 'negative' : 'neutral';
@@ -413,7 +527,190 @@
             });
         }
 
+        function selectZone(zoneCode) {
+            if (compareMode) {
+                const zone = pjmZones.find(z => z.code === zoneCode);
+                zone.selected = !zone.selected;
+                
+                selectedZones = pjmZones.filter(z => z.selected).map(z => z.code);
+                if (selectedZones.length === 0) {
+                    pjmZones[0].selected = true;
+                    selectedZones = ['RTO'];
+                }
+            } else {
+                pjmZones.forEach(z => z.selected = false);
+                const zone = pjmZones.find(z => z.code === zoneCode);
+                zone.selected = true;
+                selectedZones = [zoneCode];
+                
+                document.getElementById('selectedZoneName').textContent = zone.name;
+                document.getElementById('primaryZone').value = zoneCode;
+            }
+            
+            populateZoneGrid();
+            updateChartsForSelectedZones();
+        }
+
+        function toggleCompareMode() {
+            compareMode = !compareMode;
+            const btn = document.getElementById('compareBtn');
+            btn.textContent = compareMode ? 'Disable Compare' : 'Enable Compare';
+            
+            if (!compareMode) {
+                // Reset to single selection
+                pjmZones.forEach(z => z.selected = false);
+                pjmZones[0].selected = true;
+                selectedZones = ['RTO'];
+                document.getElementById('selectedZoneName').textContent = 'RTO Average';
+            }
+            
+            populateZoneGrid();
+            updateChartsForSelectedZones();
+        }
+
+        function generateHistoricalData(days, zoneCode) {
+            const data = [];
+            const now = new Date();
+            let basePrice = pjmZones.find(z => z.code === zoneCode)?.price || 45;
+            
+            for (let i = days; i > 0; i--) {
+                const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+                const month = date.getMonth();
+                const hour = date.getHours();
+                
+                let price = basePrice;
+                
+                // Seasonal variations
+                if (month >= 5 && month <= 8) { // Summer
+                    price *= 1.3 + Math.random() * 0.4;
+                } else if (month >= 11 || month <= 1) { // Winter
+                    price *= 1.1 + Math.random() * 0.3;
+                } else { // Spring/Fall
+                    price *= 0.8 + Math.random() * 0.4;
+                }
+                
+                // Daily patterns (if hourly data needed for shorter periods)
+                if (days <= 7) {
+                    if ((hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 20)) {
+                        price *= 1.4;
+                    } else if (hour >= 0 && hour <= 6) {
+                        price *= 0.7;
+                    }
+                }
+                
+                // Add some volatility spikes
+                if (Math.random() < 0.05) {
+                    price *= 2 + Math.random();
+                }
+                
+                data.push({
+                    date: new Date(date),
+                    price: Math.max(5, price),
+                    zone: zoneCode
+                });
+            }
+            
+            return data;
+        }
+
+        function calculate365DayStats(data) {
+            const prices = data.map(d => d.price);
+            const sortedPrices = [...prices].sort((a, b) => a - b);
+            
+            const stats = {
+                high: Math.max(...prices),
+                low: Math.min(...prices),
+                average: prices.reduce((a, b) => a + b, 0) / prices.length,
+                median: sortedPrices[Math.floor(sortedPrices.length / 2)],
+                stdDev: 0,
+                highPriceDays: prices.filter(p => p > 100).length,
+                peakSeasonAvg: 0,
+                offPeakSeasonAvg: 0
+            };
+            
+            // Calculate standard deviation
+            const variance = prices.reduce((acc, price) => acc + Math.pow(price - stats.average, 2), 0) / prices.length;
+            stats.stdDev = Math.sqrt(variance);
+            
+            // Calculate seasonal averages
+            const summerPrices = data.filter(d => {
+                const month = d.date.getMonth();
+                return month >= 5 && month <= 7;
+            }).map(d => d.price);
+            
+            const winterPrices = data.filter(d => {
+                const month = d.date.getMonth();
+                return month >= 11 || month <= 1;
+            }).map(d => d.price);
+            
+            stats.peakSeasonAvg = summerPrices.length > 0 ? 
+                summerPrices.reduce((a, b) => a + b, 0) / summerPrices.length : stats.average;
+            stats.offPeakSeasonAvg = winterPrices.length > 0 ? 
+                winterPrices.reduce((a, b) => a + b, 0) / winterPrices.length : stats.average;
+            
+            return stats;
+        }
+
+        function update365DayStats(zoneCode) {
+            const data = historicalData[zoneCode];
+            if (!data) return;
+            
+            const stats = calculate365DayStats(data);
+            
+            document.getElementById('yearlyHigh').textContent = `$${stats.high.toFixed(2)}`;
+            document.getElementById('yearlyLow').textContent = `$${stats.low.toFixed(2)}`;
+            document.getElementById('yearlyAvg').textContent = `$${stats.average.toFixed(2)}`;
+            document.getElementById('highPriceDays').textContent = stats.highPriceDays;
+            document.getElementById('peakSeasonAvg').textContent = `$${stats.peakSeasonAvg.toFixed(2)}`;
+            document.getElementById('offPeakSeasonAvg').textContent = `$${stats.offPeakSeasonAvg.toFixed(2)}`;
+            
+            // Update volatility indicator
+            let volatilityLevel = 'Low';
+            if (stats.stdDev > 30) volatilityLevel = 'High';
+            else if (stats.stdDev > 15) volatilityLevel = 'Medium';
+            
+            document.getElementById('volatility').textContent = volatilityLevel;
+            document.getElementById('peakPrice').textContent = `$${stats.high.toFixed(2)}`;
+            document.getElementById('offPeakPrice').textContent = `$${stats.low.toFixed(2)}`;
+            document.getElementById('avgPrice').textContent = `$${stats.average.toFixed(2)}`;
+        }
+
         function initializeCharts() {
+            const commonOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
+                },
+                plugins: {
+                    legend: { 
+                        display: true,
+                        labels: { color: '#a0c4ff' }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: '#4ade80',
+                        borderWidth: 1
+                    }
+                },
+                scales: {
+                    y: {
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#a0c4ff' }
+                    },
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { 
+                            color: '#a0c4ff',
+                            maxTicksLimit: 20
+                        }
+                    }
+                }
+            };
+
             // Price Chart
             const priceCtx = document.getElementById('priceChart').getContext('2d');
             priceChart = new Chart(priceCtx, {
@@ -421,31 +718,17 @@
                 data: {
                     labels: generateTimeLabels(24),
                     datasets: [{
-                        label: 'LMP ($/MWh)',
-                        data: generatePriceData(24),
+                        label: 'RTO Average LMP ($/MWh)',
+                        data: generatePriceData(24, 'RTO'),
                         borderColor: '#4ade80',
                         backgroundColor: 'rgba(74, 222, 128, 0.1)',
                         tension: 0.4,
-                        fill: true
+                        fill: true,
+                        pointRadius: 2,
+                        pointHoverRadius: 5
                     }]
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        y: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#a0c4ff' }
-                        },
-                        x: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#a0c4ff' }
-                        }
-                    }
-                }
+                options: commonOptions
             });
 
             // Load Chart
@@ -460,26 +743,12 @@
                         borderColor: '#fbbf24',
                         backgroundColor: 'rgba(251, 191, 36, 0.1)',
                         tension: 0.4,
-                        fill: true
+                        fill: true,
+                        pointRadius: 2,
+                        pointHoverRadius: 5
                     }]
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        y: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#a0c4ff' }
-                        },
-                        x: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#a0c4ff' }
-                        }
-                    }
-                }
+                options: commonOptions
             });
 
             // Forecast Chart
@@ -491,10 +760,11 @@
                     datasets: [
                         {
                             label: 'Historical',
-                            data: generatePriceData(12),
+                            data: generatePriceData(12, 'RTO'),
                             borderColor: '#4ade80',
                             backgroundColor: 'rgba(74, 222, 128, 0.1)',
-                            tension: 0.4
+                            tension: 0.4,
+                            pointRadius: 2
                         },
                         {
                             label: 'Forecast',
@@ -502,65 +772,243 @@
                             borderColor: '#f87171',
                             backgroundColor: 'rgba(248, 113, 113, 0.1)',
                             borderDash: [5, 5],
-                            tension: 0.4
+                            tension: 0.4,
+                            pointRadius: 2
                         }
                     ]
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { 
-                            display: true,
-                            labels: { color: '#a0c4ff' }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#a0c4ff' }
-                        },
-                        x: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#a0c4ff' }
-                        }
-                    }
-                }
+                options: commonOptions
             });
+        }
+
+        function updateChartsForSelectedZones() {
+            const timeRange = document.getElementById('timeRange').value;
+            
+            if (compareMode && selectedZones.length > 1) {
+                updateChartsComparison(timeRange);
+            } else {
+                updateSingleZoneCharts(timeRange, selectedZones[0] || 'RTO');
+            }
+        }
+
+        function updateSingleZoneCharts(timeRange, zoneCode) {
+            const zone = pjmZones.find(z => z.code === zoneCode);
+            const zoneName = zone ? zone.name : 'RTO Average';
+            
+            if (timeRange === '365d') {
+                showLoadingOverlay();
+                
+                // Generate historical data for the zone
+                setTimeout(() => {
+                    const historicalDataPoints = generateHistoricalData(365, zoneCode);
+                    historicalData[zoneCode] = historicalDataPoints;
+                    
+                    // Update price chart with daily data
+                    const labels = historicalDataPoints.map(d => d.date.toLocaleDateString());
+                    const prices = historicalDataPoints.map(d => d.price);
+                    
+                    priceChart.data.labels = labels;
+                    priceChart.data.datasets[0] = {
+                        label: `${zoneName} LMP ($/MWh)`,
+                        data: prices,
+                        borderColor: '#4ade80',
+                        backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                        tension: 0.1,
+                        fill: true,
+                        pointRadius: 0,
+                        pointHoverRadius: 3
+                    };
+                    
+                    priceChart.update();
+                    
+                    // Show historical section and update stats
+                    document.getElementById('historicalSection').style.display = 'block';
+                    update365DayStats(zoneCode);
+                    
+                    hideLoadingOverlay();
+                }, 1000);
+                
+            } else {
+                // Hide historical section for shorter time ranges
+                document.getElementById('historicalSection').style.display = 'none';
+                
+                const hours = getHoursFromRange(timeRange);
+                const labels = generateTimeLabels(hours);
+                const data = generatePriceData(hours, zoneCode);
+                
+                priceChart.data.labels = labels;
+                priceChart.data.datasets[0] = {
+                    label: `${zoneName} LMP ($/MWh)`,
+                    data: data,
+                    borderColor: '#4ade80',
+                    backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: hours > 168 ? 0 : 2,
+                    pointHoverRadius: 5
+                };
+                
+                priceChart.update();
+                
+                // Update load chart
+                loadChart.data.labels = labels;
+                loadChart.data.datasets[0].data = generateLoadData(hours);
+                loadChart.update();
+            }
+        }
+
+        function updateChartsComparison(timeRange) {
+            const colors = ['#4ade80', '#f87171', '#fbbf24', '#8b5cf6', '#06b6d4', '#f97316', '#ef4444', '#10b981'];
+            
+            if (timeRange === '365d') {
+                showLoadingOverlay();
+                
+                setTimeout(() => {
+                    const datasets = selectedZones.map((zoneCode, index) => {
+                        const zone = pjmZones.find(z => z.code === zoneCode);
+                        const historicalDataPoints = generateHistoricalData(365, zoneCode);
+                        historicalData[zoneCode] = historicalDataPoints;
+                        
+                        return {
+                            label: zone.name,
+                            data: historicalDataPoints.map(d => d.price),
+                            borderColor: colors[index % colors.length],
+                            backgroundColor: colors[index % colors.length] + '20',
+                            tension: 0.1,
+                            fill: false,
+                            pointRadius: 0,
+                            pointHoverRadius: 3
+                        };
+                    });
+                    
+                    priceChart.data.labels = historicalData[selectedZones[0]].map(d => d.date.toLocaleDateString());
+                    priceChart.data.datasets = datasets;
+                    priceChart.update();
+                    
+                    document.getElementById('historicalSection').style.display = 'block';
+                    update365DayStats(selectedZones[0]); // Show stats for first selected zone
+                    
+                    hideLoadingOverlay();
+                }, 1500);
+                
+            } else {
+                document.getElementById('historicalSection').style.display = 'none';
+                
+                const hours = getHoursFromRange(timeRange);
+                const labels = generateTimeLabels(hours);
+                
+                const datasets = selectedZones.map((zoneCode, index) => {
+                    const zone = pjmZones.find(z => z.code === zoneCode);
+                    return {
+                        label: zone.name,
+                        data: generatePriceData(hours, zoneCode),
+                        borderColor: colors[index % colors.length],
+                        backgroundColor: colors[index % colors.length] + '20',
+                        tension: 0.4,
+                        fill: false,
+                        pointRadius: hours > 168 ? 0 : 2,
+                        pointHoverRadius: 5
+                    };
+                });
+                
+                priceChart.data.labels = labels;
+                priceChart.data.datasets = datasets;
+                priceChart.update();
+            }
+        }
+
+        function getHoursFromRange(range) {
+            switch(range) {
+                case '1h': return 1;
+                case '6h': return 6;
+                case '24h': return 24;
+                case '7d': return 168;
+                case '30d': return 720;
+                default: return 24;
+            }
+        }
+
+        function showLoadingOverlay() {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function hideLoadingOverlay() {
+            document.getElementById('loadingOverlay').style.display = 'none';
         }
 
         function generateTimeLabels(hours, forecast = false) {
             const labels = [];
             const now = new Date();
             
-            for (let i = forecast ? -12 : -hours; i < (forecast ? 12 : 0); i++) {
-                const time = new Date(now.getTime() + i * 60 * 60 * 1000);
-                labels.push(time.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}));
+            if (hours > 168) { // More than 7 days, use daily labels
+                for (let i = forecast ? -12 : -Math.floor(hours/24); i < (forecast ? 12 : 0); i++) {
+                    const time = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
+                    labels.push(time.toLocaleDateString());
+                }
+            } else {
+                for (let i = forecast ? -12 : -hours; i < (forecast ? 12 : 0); i++) {
+                    const time = new Date(now.getTime() + i * 60 * 60 * 1000);
+                    labels.push(time.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}));
+                }
             }
             
             return labels;
         }
 
-        function generatePriceData(points) {
+        function generatePriceData(points, zoneCode = 'RTO') {
             const data = [];
-            let basePrice = 45;
+            const zone = pjmZones.find(z => z.code === zoneCode);
+            let basePrice = zone ? zone.price : 45;
+            
+            // Add zone-specific variations
+            const zoneMultipliers = {
+                'PSEG': 1.1, 'RECO': 1.15, 'JCPL': 1.05, 'DOM': 1.02,
+                'COMED': 0.95, 'AEP': 0.97, 'DEOK': 0.93, 'DAYTON': 0.96
+            };
+            
+            basePrice *= zoneMultipliers[zoneCode] || 1.0;
             
             for (let i = 0; i < points; i++) {
-                // Simulate daily price pattern with some randomness
-                const hourOfDay = i % 24;
                 let price = basePrice;
                 
-                // Peak hours (7-9 AM, 5-8 PM)
-                if ((hourOfDay >= 7 && hourOfDay <= 9) || (hourOfDay >= 17 && hourOfDay <= 20)) {
-                    price *= 1.5 + Math.random() * 0.5;
-                } else if (hourOfDay >= 0 && hourOfDay <= 6) {
-                    // Off-peak hours
-                    price *= 0.6 + Math.random() * 0.3;
+                if (points <= 24) {
+                    // Hourly pattern
+                    const hourOfDay = i % 24;
+                    if ((hourOfDay >= 7 && hourOfDay <= 9) || (hourOfDay >= 17 && hourOfDay <= 20)) {
+                        price *= 1.5 + Math.random() * 0.5;
+                    } else if (hourOfDay >= 0 && hourOfDay <= 6) {
+                        price *= 0.6 + Math.random() * 0.3;
+                    } else {
+                        price *= 0.8 + Math.random() * 0.4;
+                    }
+                } else if (points <= 168) {
+                    // Daily pattern for weekly view
+                    const dayOfWeek = Math.floor(i / 24) % 7;
+                    const hourOfDay = i % 24;
+                    
+                    // Weekend effect
+                    if (dayOfWeek === 0 || dayOfWeek === 6) {
+                        price *= 0.85;
+                    }
+                    
+                    // Peak hours
+                    if ((hourOfDay >= 7 && hourOfDay <= 20)) {
+                        price *= 1.2 + Math.random() * 0.3;
+                    } else {
+                        price *= 0.7 + Math.random() * 0.2;
+                    }
                 } else {
-                    price *= 0.8 + Math.random() * 0.4;
+                    // Daily averages for monthly view
+                    const seasonalFactor = 0.8 + Math.sin((i / points) * 2 * Math.PI) * 0.3;
+                    price *= seasonalFactor + Math.random() * 0.4;
                 }
                 
-                data.push(price.toFixed(2));
+                // Add volatility spikes
+                if (Math.random() < 0.02) {
+                    price *= 1.5 + Math.random();
+                }
+                
+                data.push(Math.max(5, price.toFixed(2)));
             }
             
             return data;
@@ -571,16 +1019,29 @@
             let baseLoad = 85000;
             
             for (let i = 0; i < points; i++) {
-                const hourOfDay = i % 24;
                 let load = baseLoad;
                 
-                // Peak load during business hours
-                if (hourOfDay >= 8 && hourOfDay <= 18) {
-                    load *= 1.1 + Math.random() * 0.1;
-                } else if (hourOfDay >= 0 && hourOfDay <= 6) {
-                    load *= 0.8 + Math.random() * 0.1;
+                if (points <= 168) {
+                    const hourOfDay = i % 24;
+                    const dayOfWeek = Math.floor(i / 24) % 7;
+                    
+                    // Weekend effect
+                    if (dayOfWeek === 0 || dayOfWeek === 6) {
+                        load *= 0.9;
+                    }
+                    
+                    // Daily pattern
+                    if (hourOfDay >= 8 && hourOfDay <= 18) {
+                        load *= 1.1 + Math.random() * 0.1;
+                    } else if (hourOfDay >= 0 && hourOfDay <= 6) {
+                        load *= 0.8 + Math.random() * 0.1;
+                    } else {
+                        load *= 0.9 + Math.random() * 0.1;
+                    }
                 } else {
-                    load *= 0.9 + Math.random() * 0.1;
+                    // Seasonal pattern for longer periods
+                    const seasonalFactor = 0.9 + Math.sin((i / points) * 2 * Math.PI) * 0.2;
+                    load *= seasonalFactor + Math.random() * 0.1;
                 }
                 
                 data.push(Math.round(load));
@@ -595,31 +1056,45 @@
             
             for (let i = 0; i < points; i++) {
                 const variance = (Math.random() - 0.5) * 20;
-                data.push((basePrice + variance).toFixed(2));
+                const trend = i * 0.5; // Slight upward trend
+                data.push((basePrice + variance + trend).toFixed(2));
             }
             
             return data;
         }
 
         function simulatePriceChanges() {
-            // Update current price with small random changes
+            if (document.getElementById('timeRange').value === '365d') return;
+            
             const currentPriceEl = document.getElementById('currentPrice');
             const priceChangeEl = document.getElementById('priceChange');
             
-            const currentPrice = parseFloat(currentPriceEl.textContent.replace('$', ''));
-            const change = (Math.random() - 0.5) * 2;
-            const newPrice = Math.max(0, currentPrice + change);
-            const changePercent = (change / currentPrice) * 100;
+            const selectedZone = selectedZones[0] || 'RTO';
+            const zone = pjmZones.find(z => z.code === selectedZone);
             
-            currentPriceEl.textContent = `$${newPrice.toFixed(2)}`;
+            const change = (Math.random() - 0.5) * 2;
+            const newPrice = Math.max(5, zone.price + change);
+            const changePercent = (change / zone.price) * 100;
+            
+            zone.price = newPrice;
+            currentPriceEl.textContent = `${newPrice.toFixed(2)}`;
             
             const changeClass = change > 0 ? 'positive' : change < 0 ? 'negative' : 'neutral';
             const changeSymbol = change > 0 ? '+' : '';
             priceChangeEl.className = `price-change ${changeClass}`;
-            priceChangeEl.textContent = `${changeSymbol}$${change.toFixed(2)} (${changeSymbol}${changePercent.toFixed(1)}%)`;
+            priceChangeEl.textContent = `${changeSymbol}${change.toFixed(2)} (${changeSymbol}${changePercent.toFixed(1)}%)`;
 
-            // Check for price alerts
             checkPriceAlerts(newPrice);
+            
+            // Update zone grid with small changes
+            pjmZones.forEach(z => {
+                if (z.code !== selectedZone) {
+                    const zoneChange = (Math.random() - 0.5) * 1.5;
+                    z.price = Math.max(5, z.price + zoneChange);
+                }
+            });
+            
+            populateZoneGrid();
         }
 
         function checkPriceAlerts(price) {
@@ -628,13 +1103,13 @@
             if (price > 80) {
                 alertsContainer.innerHTML = `
                     <div class="alert">
-                        <strong>⚠️ High Price Alert:</strong> LMP has exceeded $80/MWh. Current price: $${price.toFixed(2)}
+                        <strong>⚠️ High Price Alert:</strong> LMP has exceeded $80/MWh. Current price: ${price.toFixed(2)}
                     </div>
                 `;
             } else if (price < 20) {
                 alertsContainer.innerHTML = `
-                    <div class="alert">
-                        <strong>📉 Low Price Alert:</strong> LMP has dropped below $20/MWh. Current price: $${price.toFixed(2)}
+                    <div class="alert" style="background: rgba(74, 222, 128, 0.2); border-color: #4ade80;">
+                        <strong>📉 Low Price Alert:</strong> LMP has dropped below $20/MWh. Current price: ${price.toFixed(2)}
                     </div>
                 `;
             } else {
@@ -646,20 +1121,14 @@
             const refreshIcon = document.getElementById('refreshIcon');
             refreshIcon.innerHTML = '<div class="loading"></div>';
             
-            // Simulate API call delay
             setTimeout(() => {
                 updateLastUpdateTime();
-                populateZoneGrid();
                 
-                // Update charts with new data
-                if (priceChart) {
-                    priceChart.data.datasets[0].data = generatePriceData(24);
-                    priceChart.update();
-                }
+                const timeRange = document.getElementById('timeRange').value;
+                updateChartsForSelectedZones();
                 
-                if (loadChart) {
-                    loadChart.data.datasets[0].data = generateLoadData(24);
-                    loadChart.update();
+                if (timeRange !== '365d') {
+                    populateZoneGrid();
                 }
                 
                 refreshIcon.textContent = '🔄';
@@ -671,20 +1140,21 @@
 
         // Handle time range changes
         document.getElementById('timeRange').addEventListener('change', function(e) {
-            const hours = e.target.value === '1h' ? 1 : 
-                         e.target.value === '6h' ? 6 : 
-                         e.target.value === '24h' ? 24 : 168;
+            const timeRange = e.target.value;
             
-            if (priceChart) {
-                priceChart.data.labels = generateTimeLabels(hours);
-                priceChart.data.datasets[0].data = generatePriceData(hours);
-                priceChart.update();
+            if (timeRange === '365d') {
+                document.getElementById('priceChartContainer').classList.add('large-chart');
+            } else {
+                document.getElementById('priceChartContainer').classList.remove('large-chart');
             }
             
-            if (loadChart) {
-                loadChart.data.labels = generateTimeLabels(hours);
-                loadChart.data.datasets[0].data = generateLoadData(hours);
-                loadChart.update();
+            updateChartsForSelectedZones();
+        });
+
+        // Handle primary zone changes
+        document.getElementById('primaryZone').addEventListener('change', function(e) {
+            if (!compareMode) {
+                selectZone(e.target.value);
             }
         });
     </script>
